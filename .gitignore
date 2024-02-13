@@ -147,3 +147,6 @@ out
 verificationcode
 
 cookies.json
+
+!.paperless/docker-compose.yml
+.paperless/*

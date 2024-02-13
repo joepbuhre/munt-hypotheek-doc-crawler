@@ -1,96 +1,32 @@
-import puppeteer, { Page } from "puppeteer";
+import puppeteer from "puppeteer";
 import { logger } from "./logger";
 import { readFileSync, writeFileSync } from "node:fs";
-import path from "node:path";
-
-interface Document {
-    date: string;
-    name: string;
-    documentType: string;
-    url: string;
-}
-
-const sleep = (seconds: number) => {
-    return new Promise((resolve) => {
-        setTimeout(resolve, seconds * 1000);
-    });
-};
-
-const fetchVerificationCode = (timeoutSeconds: number) => {
-    let expirationDate = new Date();
-    expirationDate.setSeconds(expirationDate.getSeconds() + timeoutSeconds);
-
-    return new Promise(async (resolve: (value: string) => void, reject) => {
-        while (true) {
-            logger.info("Waiting to read verification code...");
-            let verificationcode: string = readFileSync("verificationcode").toString();
-            logger.debug(`Got code: [${verificationcode}]`);
-            await sleep(1);
-            if (verificationcode.length > 1) {
-                return resolve(verificationcode);
-            }
-            if (expirationDate < new Date()) {
-                return reject(false);
-            }
-        }
-    });
-};
-
-const login = async (page: Page) => {
-    // Accept cookies
-    await page.click(".cc-compliance a");
-
-    // // Log into and fetch token
-    await page.type("form input[name='UserName']", process.env.EMAIL ?? "");
-    await page.type("form input[name='Password']", process.env?.PASSWORD ?? "");
-
-    await page.click("form button");
-
-    // Wait for verification
-    let code: string = await fetchVerificationCode(60)
-        .catch((err) => {
-            logger.error("No verification code has been found");
-            process.exit(-1);
-        })
-        .finally(() => {
-            writeFileSync("verificationcode", "");
-        });
-
-    // // Login and submit
-    await page.type("form input[name='Token']", code);
-    await page.click("form button");
-};
-
-async function downloadFile(
-    doc: Document,
-    cookies: string
-): Promise<{
-    document: Document;
-    buff: ArrayBuffer;
-}> {
-    const response = await fetch(doc.url, {
-        headers: {
-            Cookie: cookies,
-        },
-    });
-    if (!response.ok) {
-        throw new Error(`Failed to download file from ${doc.url}`);
-    }
-    return {
-        document: doc,
-        buff: await response.arrayBuffer(),
-    };
-}
+import { createCorrespondent, createDocumentType, postDocument } from "./paperless";
+import { init, setEnv } from "./utils";
+import { downloadFile, login, setCookies, sleep } from "./browser-utils";
+import { Document } from "./browser-utils";
+import { PostDocumentParams, documentExists } from "./paperless/documents";
 
 (async () => {
+    await init();
+    setEnv();
+
     const browser = await puppeteer.launch({
-        headless: false,
+        headless: process.env?.NODE_ENV === "production" ? "new" : false,
+        args: ["--no-sandbox"],
     });
     const page = await browser.newPage();
+    logger.debug("Browser launched");
 
     // Set cookies
-    let cookies: any = JSON.parse(readFileSync("cookies.json").toString());
-    await page.setCookie(...cookies);
+    let cookies: any;
+    try {
+        cookies = JSON.parse(readFileSync("cookies.json").toString());
+        await page.setCookie(...cookies);
+        logger.debug("Cookies has been set");
+    } catch (error) {
+        logger.warn("Cookies path not found");
+    }
 
     await page.goto("https://munt.mijnhypotheekonline.nl/Document");
 
@@ -99,6 +35,10 @@ async function downloadFile(
     } else {
         await login(page);
     }
+
+    // Waiting until we are loaded
+    await page.waitForSelector("table#digitaldocuments tbody tr");
+    logger.debug("Page loaded succesfully");
 
     // document.querySelectorAll("table#digitaldocuments tbody tr")
     let documents = await page.$$eval("table#digitaldocuments tbody tr", (el) =>
@@ -116,42 +56,86 @@ async function downloadFile(
             return {
                 date: dt.toISOString(),
                 documentType: row.attributes.getNamedItem("data-document-type")?.value ?? "",
-                name:
-                    (<HTMLAnchorElement>row.querySelector("td:nth-child(2) a.documentname"))
-                        .textContent ?? "",
+                name: (<HTMLAnchorElement>row.querySelector("td:nth-child(2) a.documentname")).textContent ?? "",
                 url: (<HTMLAnchorElement>row.querySelector("td:nth-child(2) a.documentname")).href,
             };
         })
     );
-    logger.debug(documents);
+    logger.debug(documents, "Fetched all documents:");
 
-    // Fetch cookies and save them so we don't log in every time
-    let newCookies = await page.cookies();
-    writeFileSync("cookies.json", JSON.stringify(cookies));
-
+    // Set cookies
+    let newCookies = await setCookies(page);
     logger.debug("Done with browser");
     await browser.close();
-
     // Convert cookies to a format suitable for fetch headers
-    const cookieString: string = newCookies
-        .map((cookie) => `${cookie.name}=${cookie.value}`)
-        .join("; ");
+    const cookieString: string = newCookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
 
     // Array of promises to download all files
-    const downloadPromises = (<Document[]>documents).map((doc) => downloadFile(doc, cookieString));
+    const downloadPromises = (<Document[]>documents).map(async (doc) => {
+        // Set base Doc params
+        const { date, name, documentType, url } = doc;
+
+        // Fetch necessary paperless attributes
+        const DocumentTypeId = (await createDocumentType({ name: documentType })).id;
+        const CorrespondentId = (await createCorrespondent({ name: "Munt Hypotheken" })).id;
+
+        if (DocumentTypeId === undefined) {
+            logger.fatal(`DocumentType [${documentType}] not found and / or could not be created`);
+        }
+        if (CorrespondentId === undefined) {
+            logger.fatal("Correspondent [Munt Hypotheken] not found and / or could not be created");
+            process.exit();
+        }
+
+        // Check if document exists, otherwise exit immediately
+        if (
+            (await documentExists({
+                correspondent__id: CorrespondentId,
+                title__iexact: name,
+            })) === true
+        ) {
+            logger.info("Document already existed");
+            return;
+        }
+        const document: false | Awaited<ReturnType<typeof downloadFile>> = await downloadFile(doc, cookieString).catch((err) => false);
+
+        // Return a resolved promise
+        // We know it is unsuccesfull. Handle this in the future
+        if (document === false) {
+            logger.error("No document found, exiting...");
+            return;
+        }
+
+        const buff = Buffer.from(document.buff);
+
+        // Create blob
+        logger.info("Posting the file");
+        let file = new Blob([buff], { type: document.mime });
+        const postDocumentParams: PostDocumentParams = {
+            title: name,
+            correspondent: CorrespondentId,
+            document_type: DocumentTypeId,
+            created: date,
+            owner: null,
+        };
+        if (process.env?.PAPERLESS_TAGS) {
+            postDocumentParams["tags"] = process.env.PAPERLESS_TAGS.split(",").map((el) => parseInt(el));
+        }
+        await postDocument(file, postDocumentParams)
+            .then((res) => {
+                logger.info(`${name} saved successfully.`);
+            })
+            .catch((err) => {
+                logger.error(err, "Something went horribly wrong, while posting document");
+            });
+    });
 
     // Use Promise.all to execute all download promises concurrently
-    Promise.all(downloadPromises)
+    await Promise.all(downloadPromises)
         .then((responses) => {
-            responses.forEach((doc) => {
-                const filename = `${doc.document.name}.pdf`; // You can modify the filename as needed
-                const filePath = path.join(__dirname, "../out", filename); // Create file path
-                const buff = Buffer.from(doc.buff);
-                writeFileSync(filePath, buff); // Write blob to file
-                logger.info(`${filename} saved successfully.`);
-            });
+            logger.info("All done");
         })
-        .catch((error) => {
-            logger.error("Failed to download files:", error);
+        .catch((error: any) => {
+            logger.error(error, "Failed to download files:");
         });
 })();

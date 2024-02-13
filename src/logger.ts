@@ -2,7 +2,7 @@
 import pino, { Logger } from "pino";
 
 // Create a logging instance
-export const logger: Logger = pino({
+export const logger = pino({
     formatters: {
         level: (label) => {
             return { level: label };
@@ -16,3 +16,10 @@ export const logger: Logger = pino({
     // https://github.com/pinojs/pino/issues/674
     timestamp: pino.stdTimeFunctions.isoTime,
 });
+
+const originalFatal = logger.fatal;
+logger.fatal = function (...args: any[]): never {
+    // @ts-ignore
+    originalFatal.apply(this, args);
+    process.exit(1);
+};
