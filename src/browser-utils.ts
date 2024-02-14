@@ -3,6 +3,7 @@ import { logger } from "./logger";
 import { decryptPass, generateRandomTextFile } from "./utils";
 import { writeFileSync, readFileSync } from "fs";
 import { createVerificationServer } from "./verificationcode";
+import { notify } from "./notify";
 
 export interface Document {
     date: string;
@@ -61,6 +62,8 @@ export const login = async (page: Page) => {
 
     // Spawn browser
     const server = createVerificationServer();
+
+    await notify();
 
     // Wait for verification
     let code: string = await fetchVerificationCode(120)
