@@ -29,7 +29,7 @@ export const generateRandomTextFile = () => {
 export const setEnv = () => {
     config();
 
-    ["EMAIL", "SECRET_KEY", "PAPERLESS_API_KEY", "PAPERLESS_BASE_URL"].forEach((env) => {
+    ["EMAIL", "PAPERLESS_API_KEY", "PAPERLESS_BASE_URL"].forEach((env) => {
         if (envNotExists(env)) {
             logger.fatal(`Environment variable [${env}] not found`);
         }
