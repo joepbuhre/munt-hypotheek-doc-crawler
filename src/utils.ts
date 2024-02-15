@@ -74,7 +74,7 @@ export const init = async () => {
         console.log(
             `Your secret key is \x1b[31;4m\x1b[1m${crypto
                 .randomBytes(32)
-                .toString("hex")}\x1b[0m. Please store this in the .env file under SECRET_KEY`
+                .toString("hex")}\x1b[0m Please store this in the .env file under SECRET_KEY`
         );
         process.exit();
     }

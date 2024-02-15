@@ -1,4 +1,5 @@
-import puppeteer from "puppeteer";
+import puppeteer from "puppeteer-extra";
+import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import { logger } from "./logger";
 import { readFileSync, writeFileSync } from "node:fs";
 import { createCorrespondent, createDocumentType, postDocument } from "./paperless";
@@ -8,6 +9,7 @@ import { Document } from "./browser-utils";
 import { PostDocumentParams, documentExists } from "./paperless/documents";
 
 (async () => {
+    puppeteer.use(StealthPlugin());
     await init();
     setEnv();
 
