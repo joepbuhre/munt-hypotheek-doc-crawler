@@ -150,3 +150,5 @@ cookies.json
 
 !.paperless/docker-compose.yml
 .paperless/*
+
+shared

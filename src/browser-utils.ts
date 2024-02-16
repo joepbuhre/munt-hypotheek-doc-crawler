@@ -46,7 +46,7 @@ export const fetchVerificationCode = (timeoutSeconds: number) => {
 export const setCookies = async (page: Page) => {
     // Fetch cookies and save them so we don't log in every time
     let newCookies = await page.cookies();
-    writeFileSync("cookies.json", JSON.stringify(newCookies));
+    writeFileSync("shared/cookies.json", JSON.stringify(newCookies));
     return newCookies;
 };
 
@@ -78,10 +78,7 @@ export const login = async (page: Page) => {
 
     // // Login and submit
     await page.type("form input[name='Token']", code);
-    await page.click("form button");
-    await page.waitForNavigation({
-        waitUntil: "networkidle0",
-    });
+    await Promise.all([page.waitForNavigation(), page.click("form button")]);
     await setCookies(page);
 };
 

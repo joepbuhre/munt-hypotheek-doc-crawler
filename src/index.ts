@@ -7,6 +7,8 @@ import { init, setEnv } from "./utils";
 import { downloadFile, login, setCookies, sleep } from "./browser-utils";
 import { Document } from "./browser-utils";
 import { PostDocumentParams, documentExists } from "./paperless/documents";
+import { Page } from "puppeteer";
+import { Logger } from "pino";
 
 (async () => {
     puppeteer.use(StealthPlugin());
@@ -17,20 +19,28 @@ import { PostDocumentParams, documentExists } from "./paperless/documents";
         headless: process.env?.NODE_ENV === "production" ? "new" : false,
         args: ["--no-sandbox"],
     });
-    const page = await browser.newPage();
+    const page: Page = await browser.newPage();
+
+    // Set logger here so we can use it everywhere
+    logger.page = page;
+
+    await page.setViewport({
+        width: 1920,
+        height: 1080,
+    });
     logger.debug("Browser launched");
 
     // Set cookies
     let cookies: any;
     try {
-        cookies = JSON.parse(readFileSync("cookies.json").toString());
+        cookies = JSON.parse(readFileSync("shared/cookies.json").toString());
         await page.setCookie(...cookies);
         logger.debug("Cookies has been set");
     } catch (error) {
         logger.warn("Cookies path not found");
     }
-
     await page.goto("https://munt.mijnhypotheekonline.nl/Document");
+    logger.debug("Tried to login");
 
     if (page.url() === "https://munt.mijnhypotheekonline.nl/Document") {
         logger.info("We are logged in, fetching documents");

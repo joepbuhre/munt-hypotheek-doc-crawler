@@ -1,8 +1,13 @@
 // logger.js
 import pino, { Logger } from "pino";
+import { Page } from "puppeteer";
+
+interface ExtendedLogger extends Logger {
+    page?: Page;
+}
 
 // Create a logging instance
-export const logger = pino({
+export const logger: ExtendedLogger = pino({
     formatters: {
         level: (label) => {
             return { level: label };
@@ -22,4 +27,16 @@ logger.fatal = function (...args: any[]): never {
     // @ts-ignore
     originalFatal.apply(this, args);
     process.exit(1);
+};
+
+const originalDebug = logger.debug;
+logger.debug = function (...args: any[]) {
+    // @ts-ignore
+    originalDebug.apply(this, args);
+    let name = args.find((el) => typeof el === "string");
+    if (logger.page && process.env?.DEBUG_SCREENSHOT !== undefined) {
+        logger.page.screenshot({
+            path: `shared/${name}.png`,
+        });
+    }
 };
