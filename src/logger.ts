@@ -35,8 +35,10 @@ logger.debug = function (...args: any[]) {
     originalDebug.apply(this, args);
     let name = args.find((el) => typeof el === "string");
     if (logger.page && process.env?.DEBUG_SCREENSHOT !== undefined) {
-        logger.page.screenshot({
-            path: `shared/${name}.png`,
-        });
+        logger.page
+            .screenshot({
+                path: `shared/${name}.png`,
+            })
+            .catch((err: any) => logger.error("Couldn't make screenshot"));
     }
 };
