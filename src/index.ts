@@ -104,6 +104,9 @@ import { Logger } from "pino";
             (await documentExists({
                 correspondent__id: CorrespondentId,
                 title__iexact: name,
+                created__day: new Date(date).getDate(),
+                created__month: new Date(date).getMonth(),
+                created__year: new Date(date).getFullYear(),
             })) === true
         ) {
             logger.info("Document already existed");

@@ -24,6 +24,9 @@ const defaultParams: PostDocumentParams = {
 interface searchDocumentParams {
     correspondent__id: number;
     title__iexact: string;
+    created__year?: number;
+    created__month?: number;
+    created__day?: number;
 }
 
 export const documentExists = (params: searchDocumentParams): Promise<boolean> =>
